@@ -1,0 +1,17 @@
+<?php
+
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use Quarry\Commands\MigrateCommand;
+use Quarry\Commands\MakeSchemaCommand;
+use Quarry\Commands\PoolStatusCommand;
+use Symfony\Component\Console\Application;
+
+$application = new Application('Quarry ORM', '1.0.0');
+
+// Register commands (to be implemented)
+$application->add(new MigrateCommand());
+// $application->add(new MakeSchemaCommand());
+// $application->add(new PoolStatusCommand());
+
+$application->run();
