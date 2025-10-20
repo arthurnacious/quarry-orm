@@ -8,7 +8,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Quarry\Quarry;
-use Quarry\Database\DB;
+use Quarry\Database\SyncPool;
 use PDO;
 use RuntimeException;
 
@@ -32,7 +32,13 @@ class MigrateCommand extends Command
                 'c',
                 InputOption::VALUE_OPTIONAL,
                 'Database connection pool to use',
-                'default'
+                'primary'
+            )
+            ->addOption(
+                'database-url',
+                'd',
+                InputOption::VALUE_OPTIONAL,
+                'Database URL (overrides config)'
             );
     }
 
@@ -43,12 +49,15 @@ class MigrateCommand extends Command
 
         $migrationsPath = $input->getOption('path');
         $connectionPool = $input->getOption('connection');
+        $databaseUrl = $input->getOption('database-url');
 
         try {
-            // Ensure migrations table exists
+            // Ensure the requested pool exists
+            $this->ensurePoolExists($connectionPool, $databaseUrl, $io);
+
+            // Rest of the method remains the same...
             $this->ensureMigrationsTable($connectionPool, $io);
 
-            // Get pending migrations
             $pendingMigrations = $this->getPendingMigrations($migrationsPath, $connectionPool, $io);
 
             if (empty($pendingMigrations)) {
@@ -64,7 +73,6 @@ class MigrateCommand extends Command
                 return Command::SUCCESS;
             }
 
-            // Run migrations
             $results = $this->runMigrations($pendingMigrations, $connectionPool, $io);
 
             $io->newLine();
@@ -88,6 +96,39 @@ class MigrateCommand extends Command
         }
     }
 
+    private function ensurePoolExists(string $poolName, ?string $databaseUrl, SymfonyStyle $io): void
+    {
+        if (Quarry::hasPool($poolName)) {
+            return;
+        }
+
+        $io->text("<fg=yellow>⚠️</> Pool '{$poolName}' not found in configuration");
+
+        // Create a default pool
+        if ($databaseUrl) {
+            $io->text("Using provided database URL: {$databaseUrl}");
+        } else {
+            // Default to SQLite in current directory
+            $databaseUrl = 'sqlite:///' . getcwd() . '/database.sqlite';
+            $io->text("Using default SQLite database: {$databaseUrl}");
+        }
+
+        $pool = new SyncPool([
+            'max_connections' => 5,
+            'max_idle_connections' => 3,
+            'idle_timeout' => 30,
+            'connection_config' => [
+                'database_url' => $databaseUrl
+            ]
+        ]);
+
+        Quarry::registerPool($poolName, $pool);
+        Quarry::setDefaultPool($poolName);
+        
+        $io->text("<fg=green>✅</> Created pool '{$poolName}'");
+    }
+
+    // ... rest of the methods remain the same
     private function ensureMigrationsTable(string $connectionPool, SymfonyStyle $io): void
     {
         $pool = Quarry::getPool($connectionPool);
@@ -116,15 +157,14 @@ class MigrateCommand extends Command
             throw new RuntimeException("Migrations directory not found: {$migrationsPath}");
         }
 
-        // Get all SQL files
         $migrationFiles = glob($migrationsPath . '/*.sql');
         sort($migrationFiles);
 
         if (empty($migrationFiles)) {
+            $io->warning("No migration files found in: {$migrationsPath}");
             return [];
         }
 
-        // Get executed migrations
         $pool = Quarry::getPool($connectionPool);
         $connection = $pool->getConnection();
         
@@ -133,7 +173,7 @@ class MigrateCommand extends Command
             $stmt = $connection->query('SELECT migration FROM quarry_migrations ORDER BY id');
             $executedMigrations = $stmt->fetchAll(PDO::FETCH_COLUMN);
         } catch (\PDOException $e) {
-            // Table might not exist yet
+            // Table might not exist yet - that's ok
         } finally {
             $pool->releaseConnection($connection);
         }
@@ -182,7 +222,6 @@ class MigrateCommand extends Command
                 $io->text("<fg=red>❌ Failed:</> {$filename}");
                 $io->text("    Error: {$e->getMessage()}");
                 
-                // Continue with next migration?
                 if (!$io->confirm('Continue with remaining migrations?', false)) {
                     break;
                 }

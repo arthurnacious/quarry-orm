@@ -10,7 +10,7 @@ use RuntimeException;
 class Quarry
 {
     private static array $pools = [];
-    private static string $defaultPool = 'default';
+    private static string $defaultPool = 'primary';
 
     public static function registerPool(string $name, PoolInterface $pool): void
     {

@@ -3,11 +3,12 @@
 namespace Quarry;
 
 use ReflectionClass;
+use PDO;
 
 abstract class Model
 {
     protected static ?string $table = null;
-    protected static string $pool = 'default';
+    protected static string $pool;
     
     protected array $attributes = [];
     protected array $original = [];
@@ -77,10 +78,10 @@ abstract class Model
         static::$table = $table;
     }
 
-    // Pool management
+    // Pool management - FIXED: Use Quarry's default pool
     public static function getPoolName(): string
     {
-        return static::$pool;
+        return static::$pool ?? Quarry::getDefaultPool();
     }
 
     public static function pool(string $poolName): static

@@ -17,11 +17,13 @@ class DB
         'orderBy' => [],
         'limit' => null,
         'offset' => null,
+        'joins' => [],
+        'groupBy' => [],
     ];
     
     private array $bindings = [];
 
-        public static function table(string $table, string $pool = null): self
+    public static function table(string $table, ?string $pool = null): self
     {
         $instance = new self();
         $instance->table = $table;
@@ -45,16 +47,42 @@ class DB
         return $instance;
     }
 
+    // RAW expression - returns a RawExpression object
+    public static function raw(string $value): RawExpression
+    {
+        return new RawExpression($value);
+    }
+
     public function from(string $table): self
     {
         $this->table = $table;
         return $this;
     }
 
-    // SELECT operations
-    public function select(string ...$columns): self
+    // SELECT operations - handle both strings and RawExpression objects
+    public function select(...$columns): self
     {
         $this->query['select'] = $columns;
+        return $this;
+    }
+
+    // LEFT JOIN operation
+    public function leftJoin(string $table, string $first, string $operator, string $second): self
+    {
+        $this->query['joins'][] = [
+            'type' => 'left',
+            'table' => $table,
+            'first' => $first,
+            'operator' => $operator,
+            'second' => $second
+        ];
+        return $this;
+    }
+
+    // GROUP BY operation
+    public function groupBy(...$columns): self
+    {
+        $this->query['groupBy'] = $columns;
         return $this;
     }
 
@@ -151,7 +179,7 @@ class DB
     public function count(): int
     {
         return $this->executeWithPool(function(PDO $connection) {
-            $this->query['select'] = ['COUNT(*) as count'];
+            $this->query['select'] = [DB::raw('COUNT(*) as count')];
             $sql = $this->buildSelectQuery();
             $stmt = $connection->prepare($sql);
             $stmt->execute($this->getBindings());
@@ -219,12 +247,42 @@ class DB
 
     private function buildSelectQuery(): string
     {
-        $select = implode(', ', $this->query['select']);
+        $selectParts = [];
+        foreach ($this->query['select'] as $column) {
+            if ($column instanceof RawExpression) {
+                // Handle raw expressions - include as-is
+                $selectParts[] = $column->getValue();
+            } else {
+                $selectParts[] = $column;
+            }
+        }
+        
+        $select = implode(', ', $selectParts);
         $sql = "SELECT {$select} FROM {$this->table}";
+        
+        // Add LEFT JOINs
+        if (!empty($this->query['joins'])) {
+            foreach ($this->query['joins'] as $join) {
+                $sql .= " LEFT JOIN {$join['table']} ON {$join['first']} {$join['operator']} {$join['second']}";
+            }
+        }
         
         $where = $this->buildWhere();
         if ($where) {
             $sql .= $where;
+        }
+        
+        // Add GROUP BY
+        if (!empty($this->query['groupBy'])) {
+            $groupByParts = [];
+            foreach ($this->query['groupBy'] as $column) {
+                if ($column instanceof RawExpression) {
+                    $groupByParts[] = $column->getValue();
+                } else {
+                    $groupByParts[] = $column;
+                }
+            }
+            $sql .= " GROUP BY " . implode(', ', $groupByParts);
         }
         
         if (!empty($this->query['orderBy'])) {
@@ -301,7 +359,30 @@ class DB
             'orderBy' => [],
             'limit' => null,
             'offset' => null,
+            'joins' => [],
+            'groupBy' => [],
         ];
         $this->bindings = [];
+    }
+}
+
+// RawExpression class to handle raw SQL expressions
+class RawExpression
+{
+    private string $value;
+
+    public function __construct(string $value)
+    {
+        $this->value = $value;
+    }
+
+    public function getValue(): string
+    {
+        return $this->value;
+    }
+
+    public function __toString(): string
+    {
+        return $this->value;
     }
 }
