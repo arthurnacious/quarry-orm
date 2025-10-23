@@ -16,7 +16,6 @@ class Quarry
         self::$connections[$name] = $pool;
     }
 
-    // ADD THIS METHOD - the one that's missing!
     public static function getConnectionPool(string $name): PoolInterface
     {
         if (!isset(self::$connections[$name])) {
@@ -24,8 +23,6 @@ class Quarry
         }
         return self::$connections[$name];
     }
-
-    // KEEP this for backwards compatibility during transition
     public static function getConnection(string $name): PoolInterface
     {
         return self::getConnectionPool($name);
@@ -56,14 +53,16 @@ class Quarry
 
     public static function initialize(array $config): void
     {
-        foreach ($config['connections'] as $connectionName => $connectionConfig) {
-            $pool = new SyncPool($connectionConfig);
+        if (is_array($config)) {
+            $config = \Quarry\Config\DatabaseConfig::fromArray($config);
+        }
+
+        foreach ($config->connections as $connectionName => $connectionConfig) {
+            $pool = new SyncPool($connectionConfig->toArray());
             self::registerConnection($connectionName, $pool);
         }
 
-        if (isset($config['default_connection'])) {
-            self::setDefaultConnection($config['default_connection']);
-        }
+        self::setDefaultConnection($config->defaultConnection);
     }
 
     public static function closeAll(): void
