@@ -5,6 +5,7 @@ namespace Quarry;
 use Quarry\Database\PoolInterface;
 use Quarry\Database\SyncPool;
 use InvalidArgumentException;
+use Quarry\Database\PoolFactory;
 
 class Quarry
 {
@@ -53,16 +54,14 @@ class Quarry
 
     public static function initialize(array $config): void
     {
-        if (is_array($config)) {
-            $config = \Quarry\Config\DatabaseConfig::fromArray($config);
-        }
-
-        foreach ($config->connections as $connectionName => $connectionConfig) {
-            $pool = new SyncPool($connectionConfig->toArray());
+        foreach ($config['connections'] as $connectionName => $connectionConfig) {
+            $pool = PoolFactory::create($connectionConfig);
             self::registerConnection($connectionName, $pool);
         }
 
-        self::setDefaultConnection($config->defaultConnection);
+        if (isset($config['default_connection'])) {
+            self::setDefaultConnection($config['default_connection']);
+        }
     }
 
     public static function closeAll(): void

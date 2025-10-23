@@ -7,12 +7,14 @@ use Quarry\Config\ConnectionString;
 return new DatabaseConfig(
     connections: [
         'primary' => new ConnectionConfig(
+            pool_startegy: 'roadstar',
             maxPoolSize: 5,
             maxIdle: 3,
             idleTimeout: 30,
             connectionConfig: ConnectionString::fromString('sqlite:///database.sqlite')
         ),
         'read' => new ConnectionConfig(
+            pool_startegy: 'roadstar',
             maxPoolSize: 10,
             maxIdle: 5,
             idleTimeout: 60,
