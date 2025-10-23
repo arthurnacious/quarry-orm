@@ -1,29 +1,23 @@
 <?php
 
 return [
-    'pools' => [
+    'connections' => [
         'primary' => [
-            'max_connections' => 5,
-            'max_idle_connections' => 3,
+            'max_pool_size' => 5,
+            'max_idle' => 3,
             'idle_timeout' => 30,
             'connection_config' => [
                 'database_url' => 'sqlite:///database.sqlite'
             ]
         ],
         'read' => [
-            'max_connections' => 10,
-            'max_idle_connections' => 5,
+            'max_pool_size' => 10,
+            'max_idle' => 5,
             'idle_timeout' => 60,
             'connection_config' => [
-                'database_url' => 'sqlite:///database.sqlite' // Same for demo
+                'database_url' => 'sqlite:///database.sqlite'
             ]
         ]
     ],
-    
-    'default_pool' => 'primary',
-    
-    'migrations' => [
-        'path' => __DIR__ . '/../database/migrations',
-        'table' => 'quarry_migrations'
-    ]
+    'default_connection' => 'primary'
 ];

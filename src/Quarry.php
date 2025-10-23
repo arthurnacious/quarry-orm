@@ -5,68 +5,72 @@ namespace Quarry;
 use Quarry\Database\PoolInterface;
 use Quarry\Database\SyncPool;
 use InvalidArgumentException;
-use RuntimeException;
 
 class Quarry
 {
-    private static array $pools = [];
-    private static string $defaultPool = 'primary';
+    private static array $connections = [];
+    private static string $defaultConnection = 'primary';
 
-    public static function registerPool(string $name, PoolInterface $pool): void
+    public static function registerConnection(string $name, PoolInterface $pool): void
     {
-        self::$pools[$name] = $pool;
+        self::$connections[$name] = $pool;
     }
 
-    public static function getPool(string $name): PoolInterface
+    // ADD THIS METHOD - the one that's missing!
+    public static function getConnectionPool(string $name): PoolInterface
     {
-        if (!isset(self::$pools[$name])) {
-            throw new InvalidArgumentException("Pool '{$name}' not found");
+        if (!isset(self::$connections[$name])) {
+            throw new InvalidArgumentException("Connection pool '{$name}' not found");
         }
-        
-        return self::$pools[$name];
+        return self::$connections[$name];
     }
 
-    public static function setDefaultPool(string $name): void
+    // KEEP this for backwards compatibility during transition
+    public static function getConnection(string $name): PoolInterface
     {
-        if (!isset(self::$pools[$name])) {
-            throw new InvalidArgumentException("Cannot set default pool: '{$name}' not found");
+        return self::getConnectionPool($name);
+    }
+
+    public static function setDefaultConnection(string $name): void
+    {
+        if (!isset(self::$connections[$name])) {
+            throw new InvalidArgumentException("Cannot set default connection: '{$name}' not found");
         }
-        
-        self::$defaultPool = $name;
+        self::$defaultConnection = $name;
     }
 
-    public static function getDefaultPool(): string
+    public static function getDefaultConnection(): string
     {
-        return self::$defaultPool;
+        return self::$defaultConnection;
     }
 
-    public static function getPools(): array
+    public static function getConnections(): array
     {
-        return self::$pools;
+        return self::$connections;
     }
 
-    public static function hasPool(string $name): bool
+    public static function hasConnection(string $name): bool
     {
-        return isset(self::$pools[$name]);
+        return isset(self::$connections[$name]);
     }
 
     public static function initialize(array $config): void
     {
-        foreach ($config['pools'] as $poolName => $poolConfig) {
-            $pool = new SyncPool($poolConfig);
-            self::registerPool($poolName, $pool);
+        foreach ($config['connections'] as $connectionName => $connectionConfig) {
+            $pool = new SyncPool($connectionConfig);
+            self::registerConnection($connectionName, $pool);
         }
 
-        if (isset($config['default_pool'])) {
-            self::setDefaultPool($config['default_pool']);
+        if (isset($config['default_connection'])) {
+            self::setDefaultConnection($config['default_connection']);
         }
     }
 
     public static function closeAll(): void
     {
-        foreach (self::$pools as $pool) {
-            $pool->close();
+        foreach (self::$connections as $connection) {
+            $connection->close();
         }
-        self::$pools = [];
+        self::$connections = [];
     }
 }

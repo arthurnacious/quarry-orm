@@ -27,11 +27,11 @@ class BasicTest extends TestCase
             ]
         ]);
 
-        Quarry::registerPool('test', $pool);
-        
-        $this->assertTrue(Quarry::hasPool('test'));
-        $this->assertInstanceOf(SyncPool::class, Quarry::getPool('test'));
-        
+        Quarry::registerConnection('test', $pool);
+
+        $this->assertTrue(Quarry::hasConnection('test'));
+        $this->assertInstanceOf(SyncPool::class, Quarry::getconnection('test'));
+
         // Test we can get a connection
         $connection = $pool->getConnection();
         $this->assertInstanceOf(\PDO::class, $connection);

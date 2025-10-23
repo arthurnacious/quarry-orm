@@ -5,7 +5,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 use Quarry\Quarry;
 use Quarry\Commands\MigrateCommand;
 use Quarry\Commands\MakeSchemaCommand;
-use Quarry\Commands\PoolStatusCommand;
+use Quarry\Commands\ConnectionStatusCommand;
 use Symfony\Component\Console\Application;
 
 // Try to load configuration
@@ -16,7 +16,7 @@ if (file_exists($configPath)) {
 } else {
     // Fallback: create a default SQLite configuration
     Quarry::initialize([
-        'pools' => [
+        'connections' => [
             'primary' => [
                 'max_connections' => 5,
                 'connection_config' => [
@@ -24,15 +24,15 @@ if (file_exists($configPath)) {
                 ]
             ]
         ],
-        'default_pool' => 'primary'
+        'default_connection' => 'primary'
     ]);
 }
 
-$application = new Application('Quarry ORM', '1.0.0');
+$application = new Application('Quarry ORM', '0.0.1');
 
 // Register commands
 $application->add(new MigrateCommand());
-// $application->add(new MakeSchemaCommand());
-// $application->add(new PoolStatusCommand());
+$application->add(new MakeSchemaCommand());
+// $application->add(new ConnectionStatusCommand());
 
 $application->run();

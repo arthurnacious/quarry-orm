@@ -13,9 +13,9 @@ class QueryBuilderTest extends TestCase
     {
         // Use file-based SQLite to persist across connections
         $testDbPath = __DIR__ . '/test_database.sqlite';
-        
+
         // Register test pool
-        Quarry::registerPool('test', new SyncPool([
+        Quarry::registerConnection('test', new SyncPool([
             'max_connections' => 5,
             'connection_config' => [
                 'database_url' => 'sqlite:///' . $testDbPath
@@ -23,7 +23,7 @@ class QueryBuilderTest extends TestCase
         ]));
 
         // Create test table
-        $pool = Quarry::getPool('test');
+        $pool = Quarry::getConnection('test');
         $connection = $pool->getConnection();
         $connection->exec('
             CREATE TABLE IF NOT EXISTS users (
@@ -40,7 +40,7 @@ class QueryBuilderTest extends TestCase
     protected function tearDown(): void
     {
         Quarry::closeAll();
-        
+
         // Clean up test database file
         $testDbPath = __DIR__ . '/test_database.sqlite';
         if (file_exists($testDbPath)) {
@@ -59,7 +59,7 @@ class QueryBuilderTest extends TestCase
         $query = DB::table('users', 'test')
             ->where('active', 1)
             ->where('name', 'like', 'John%');
-        
+
         $this->assertInstanceOf(DB::class, $query);
     }
 
@@ -70,7 +70,7 @@ class QueryBuilderTest extends TestCase
             'email' => 'john@example.com',
             'active' => 1
         ]);
-        
+
         $this->assertIsInt($id);
         $this->assertEquals(1, $id);
     }
@@ -82,7 +82,7 @@ class QueryBuilderTest extends TestCase
             'name' => 'Test User',
             'email' => 'test@example.com'
         ]);
-        
+
         $count = DB::table('users', 'test')->count();
         $this->assertEquals(1, $count);
     }
@@ -94,7 +94,7 @@ class QueryBuilderTest extends TestCase
             'name' => 'Jane Doe',
             'email' => 'jane@example.com'
         ]);
-        
+
         $user = DB::table('users', 'test')->first();
         $this->assertIsArray($user);
         $this->assertEquals('Jane Doe', $user['name']);
@@ -106,11 +106,11 @@ class QueryBuilderTest extends TestCase
             'name' => 'John Doe',
             'email' => 'john@example.com'
         ]);
-        
+
         $users = DB::table('users', 'test')
             ->select('id', 'name')
             ->get();
-        
+
         $this->assertCount(1, $users);
         $this->assertArrayHasKey('id', $users[0]);
         $this->assertArrayHasKey('name', $users[0]);
@@ -121,11 +121,11 @@ class QueryBuilderTest extends TestCase
     {
         DB::table('users', 'test')->insert(['name' => 'Alpha', 'email' => 'alpha@example.com']);
         DB::table('users', 'test')->insert(['name' => 'Beta', 'email' => 'beta@example.com']);
-        
+
         $users = DB::table('users', 'test')
             ->orderBy('name', 'DESC')
             ->get();
-        
+
         $this->assertCount(2, $users);
         $this->assertEquals('Beta', $users[0]['name']);
     }
@@ -135,13 +135,13 @@ class QueryBuilderTest extends TestCase
         DB::table('users', 'test')->insert(['name' => 'User 1', 'email' => 'user1@example.com']);
         DB::table('users', 'test')->insert(['name' => 'User 2', 'email' => 'user2@example.com']);
         DB::table('users', 'test')->insert(['name' => 'User 3', 'email' => 'user3@example.com']);
-        
+
         $users = DB::table('users', 'test')
             ->limit(2)
             ->offset(1)
             ->orderBy('id')
             ->get();
-        
+
         $this->assertCount(2, $users);
         $this->assertEquals('User 2', $users[0]['name']);
     }
@@ -152,13 +152,13 @@ class QueryBuilderTest extends TestCase
             'name' => 'Old Name',
             'email' => 'old@example.com'
         ]);
-        
+
         $affected = DB::table('users', 'test')
             ->where('id', $id)
             ->update(['name' => 'New Name']);
-        
+
         $this->assertEquals(1, $affected);
-        
+
         $user = DB::table('users', 'test')->where('id', $id)->first();
         $this->assertEquals('New Name', $user['name']);
     }
@@ -169,13 +169,13 @@ class QueryBuilderTest extends TestCase
             'name' => 'To Delete',
             'email' => 'delete@example.com'
         ]);
-        
+
         $deleted = DB::table('users', 'test')
             ->where('id', $id)
             ->delete();
-        
+
         $this->assertEquals(1, $deleted);
-        
+
         $count = DB::table('users', 'test')->where('id', $id)->count();
         $this->assertEquals(0, $count);
     }
@@ -185,18 +185,18 @@ class QueryBuilderTest extends TestCase
         $exists = DB::table('users', 'test')
             ->where('name', 'Non-existent')
             ->exists();
-        
+
         $this->assertFalse($exists);
-        
+
         DB::table('users', 'test')->insert([
             'name' => 'Existing User',
             'email' => 'existing@example.com'
         ]);
-        
+
         $exists = DB::table('users', 'test')
             ->where('name', 'Existing User')
             ->exists();
-        
+
         $this->assertTrue($exists);
     }
 
@@ -204,12 +204,12 @@ class QueryBuilderTest extends TestCase
     {
         DB::table('users', 'test')->insert(['name' => 'John', 'email' => 'john@example.com']);
         DB::table('users', 'test')->insert(['name' => 'Jane', 'email' => 'jane@example.com']);
-        
+
         $users = DB::table('users', 'test')
             ->where('name', 'John')
             ->orWhere('name', 'Jane')
             ->get();
-        
+
         $this->assertCount(2, $users);
     }
 
@@ -218,19 +218,19 @@ class QueryBuilderTest extends TestCase
         DB::table('users', 'test')->insert(['name' => 'User1', 'email' => 'user1@example.com']);
         DB::table('users', 'test')->insert(['name' => 'User2', 'email' => 'user2@example.com']);
         DB::table('users', 'test')->insert(['name' => 'User3', 'email' => 'user3@example.com']);
-        
+
         $users = DB::table('users', 'test')
             ->whereIn('name', ['User1', 'User2'])
             ->get();
-        
+
         $this->assertCount(2, $users);
     }
 
     public function test_pool_method(): void
     {
-        $query = DB::pool('test')->from('users');
+        $query = DB::connection('test')->from('users');
         $this->assertInstanceOf(DB::class, $query);
-        
+
         $results = $query->get();
         $this->assertIsArray($results);
     }

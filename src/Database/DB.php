@@ -9,8 +9,8 @@ use PDOStatement;
 class DB
 {
     private string $table;
-    private string $pool;
-    
+    private string $connection;
+
     private array $query = [
         'select' => ['*'],
         'where' => [],
@@ -20,30 +20,30 @@ class DB
         'joins' => [],
         'groupBy' => [],
     ];
-    
+
     private array $bindings = [];
 
-    public static function table(string $table, ?string $pool = null): self
+    public static function table(string $table, ?string $connection = null): self
     {
         $instance = new self();
         $instance->table = $table;
-        
-        // Use provided pool or try to get default, fallback to first available
-        if ($pool) {
-            $instance->pool = $pool;
-        } elseif (Quarry::getPools()) {
-            $instance->pool = Quarry::getDefaultPool();
+
+        // Use provided connection or try to get default, fallback to first available
+        if ($connection) {
+            $instance->connection = $connection;
+        } elseif (Quarry::getConnections()) {
+            $instance->connection = Quarry::getDefaultConnection();
         } else {
-            throw new \RuntimeException('No database pools configured');
+            throw new \RuntimeException('No database connections configured');
         }
-        
+
         return $instance;
     }
 
-    public static function pool(string $pool): self
+    public static function connection(string $connection): self
     {
         $instance = new self();
-        $instance->pool = $pool;
+        $instance->connection = $connection;
         return $instance;
     }
 
@@ -161,11 +161,11 @@ class DB
 
     public function get(): array
     {
-        return $this->executeWithPool(function(PDO $connection) {
+        return $this->executeWithPool(function (PDO $connection) {
             $sql = $this->buildSelectQuery();
             $stmt = $connection->prepare($sql);
             $stmt->execute($this->getBindings());
-            
+
             return $stmt->fetchAll(PDO::FETCH_ASSOC);
         });
     }
@@ -178,12 +178,12 @@ class DB
 
     public function count(): int
     {
-        return $this->executeWithPool(function(PDO $connection) {
+        return $this->executeWithPool(function (PDO $connection) {
             $this->query['select'] = [DB::raw('COUNT(*) as count')];
             $sql = $this->buildSelectQuery();
             $stmt = $connection->prepare($sql);
             $stmt->execute($this->getBindings());
-            
+
             $result = $stmt->fetch(PDO::FETCH_ASSOC);
             return (int) $result['count'];
         });
@@ -196,51 +196,51 @@ class DB
 
     public function insert(array $data): int
     {
-        return $this->executeWithPool(function(PDO $connection) use ($data) {
+        return $this->executeWithPool(function (PDO $connection) use ($data) {
             $columns = array_keys($data);
             $values = array_values($data);
             $placeholders = str_repeat('?,', count($values) - 1) . '?';
-            
+
             $sql = "INSERT INTO {$this->table} (" . implode(', ', $columns) . ") VALUES ({$placeholders})";
             $stmt = $connection->prepare($sql);
             $stmt->execute($values);
-            
+
             return (int) $connection->lastInsertId();
         });
     }
 
     public function update(array $data): int
     {
-        return $this->executeWithPool(function(PDO $connection) use ($data) {
+        return $this->executeWithPool(function (PDO $connection) use ($data) {
             $set = [];
             $bindings = [];
-            
+
             foreach ($data as $column => $value) {
                 $set[] = "{$column} = ?";
                 $bindings[] = $value;
             }
-            
+
             $bindings = array_merge($bindings, $this->getBindings());
             $where = $this->buildWhere();
-            
+
             $sql = "UPDATE {$this->table} SET " . implode(', ', $set) . $where;
             $stmt = $connection->prepare($sql);
             $stmt->execute($bindings);
-            
+
             return $stmt->rowCount();
         });
     }
 
     public function delete(): int
     {
-        return $this->executeWithPool(function(PDO $connection) {
+        return $this->executeWithPool(function (PDO $connection) {
             $where = $this->buildWhere();
             $bindings = $this->getBindings();
-            
+
             $sql = "DELETE FROM {$this->table}" . $where;
             $stmt = $connection->prepare($sql);
             $stmt->execute($bindings);
-            
+
             return $stmt->rowCount();
         });
     }
@@ -256,22 +256,22 @@ class DB
                 $selectParts[] = $column;
             }
         }
-        
+
         $select = implode(', ', $selectParts);
         $sql = "SELECT {$select} FROM {$this->table}";
-        
+
         // Add LEFT JOINs
         if (!empty($this->query['joins'])) {
             foreach ($this->query['joins'] as $join) {
                 $sql .= " LEFT JOIN {$join['table']} ON {$join['first']} {$join['operator']} {$join['second']}";
             }
         }
-        
+
         $where = $this->buildWhere();
         if ($where) {
             $sql .= $where;
         }
-        
+
         // Add GROUP BY
         if (!empty($this->query['groupBy'])) {
             $groupByParts = [];
@@ -284,7 +284,7 @@ class DB
             }
             $sql .= " GROUP BY " . implode(', ', $groupByParts);
         }
-        
+
         if (!empty($this->query['orderBy'])) {
             $orders = [];
             foreach ($this->query['orderBy'] as $order) {
@@ -292,15 +292,15 @@ class DB
             }
             $sql .= " ORDER BY " . implode(', ', $orders);
         }
-        
+
         if ($this->query['limit'] !== null) {
             $sql .= " LIMIT " . $this->query['limit'];
         }
-        
+
         if ($this->query['offset'] !== null) {
             $sql .= " OFFSET " . $this->query['offset'];
         }
-        
+
         return $sql;
     }
 
@@ -309,10 +309,10 @@ class DB
         if (empty($this->query['where'])) {
             return '';
         }
-        
+
         $where = ' WHERE ';
         $conditions = [];
-        
+
         foreach ($this->query['where'] as $index => $whereClause) {
             if ($whereClause['type'] === 'in') {
                 // Handle WHERE IN conditions
@@ -322,14 +322,14 @@ class DB
                 // Handle basic WHERE conditions
                 $condition = "{$whereClause['column']} {$whereClause['operator']} ?";
             }
-            
+
             if ($index === 0) {
                 $conditions[] = $condition;
             } else {
                 $conditions[] = "{$whereClause['boolean']} {$condition}";
             }
         }
-        
+
         return $where . implode(' ', $conditions);
     }
 
@@ -340,9 +340,9 @@ class DB
 
     private function executeWithPool(callable $callback)
     {
-        $pool = Quarry::getPool($this->pool);
+        $pool = Quarry::getConnectionPool($this->connection);
         $connection = $pool->getConnection();
-        
+
         try {
             return $callback($connection);
         } finally {

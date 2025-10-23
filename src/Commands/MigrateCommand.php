@@ -9,7 +9,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Quarry\Quarry;
 use Quarry\Database\SyncPool;
-use PDO;
+use Quarry\Database\ConnectionScope;
 use RuntimeException;
 
 class MigrateCommand extends Command
@@ -31,7 +31,7 @@ class MigrateCommand extends Command
                 'connection',
                 'c',
                 InputOption::VALUE_OPTIONAL,
-                'Database connection pool to use',
+                'Database connection to use',
                 'primary'
             )
             ->addOption(
@@ -48,17 +48,16 @@ class MigrateCommand extends Command
         $io->title('🚀 Quarry Database Migrations');
 
         $migrationsPath = $input->getOption('path');
-        $connectionPool = $input->getOption('connection');
+        $connectionName = $input->getOption('connection');
         $databaseUrl = $input->getOption('database-url');
 
         try {
-            // Ensure the requested pool exists
-            $this->ensurePoolExists($connectionPool, $databaseUrl, $io);
+            // Ensure the requested connection exists
+            $this->ensureConnectionExists($connectionName, $databaseUrl, $io);
 
-            // Rest of the method remains the same...
-            $this->ensureMigrationsTable($connectionPool, $io);
+            $this->ensureMigrationsTable($connectionName, $io);
 
-            $pendingMigrations = $this->getPendingMigrations($migrationsPath, $connectionPool, $io);
+            $pendingMigrations = $this->getPendingMigrations($migrationsPath, $connectionName, $io);
 
             if (empty($pendingMigrations)) {
                 $io->success('✅ No pending migrations - database is up to date!');
@@ -73,7 +72,7 @@ class MigrateCommand extends Command
                 return Command::SUCCESS;
             }
 
-            $results = $this->runMigrations($pendingMigrations, $connectionPool, $io);
+            $results = $this->runMigrations($pendingMigrations, $connectionName, $io);
 
             $io->newLine();
 
@@ -85,26 +84,25 @@ class MigrateCommand extends Command
             $io->success(sprintf(
                 '✅ Successfully ran %d migration(s) on connection "%s"',
                 $results['success'],
-                $connectionPool
+                $connectionName
             ));
 
             return Command::SUCCESS;
-
         } catch (RuntimeException $e) {
             $io->error($e->getMessage());
             return Command::FAILURE;
         }
     }
 
-    private function ensurePoolExists(string $poolName, ?string $databaseUrl, SymfonyStyle $io): void
+    private function ensureConnectionExists(string $connectionName, ?string $databaseUrl, SymfonyStyle $io): void
     {
-        if (Quarry::hasPool($poolName)) {
+        if (Quarry::hasConnection($connectionName)) {
             return;
         }
 
-        $io->text("<fg=yellow>⚠️</> Pool '{$poolName}' not found in configuration");
+        $io->text("<fg=yellow>⚠️</> Connection '{$connectionName}' not found in configuration");
 
-        // Create a default pool
+        // Create a default connection
         if ($databaseUrl) {
             $io->text("Using provided database URL: {$databaseUrl}");
         } else {
@@ -114,44 +112,49 @@ class MigrateCommand extends Command
         }
 
         $pool = new SyncPool([
-            'max_connections' => 5,
-            'max_idle_connections' => 3,
+            'max_pool_size' => 5,
+            'max_idle' => 3,
             'idle_timeout' => 30,
             'connection_config' => [
                 'database_url' => $databaseUrl
             ]
         ]);
 
-        Quarry::registerPool($poolName, $pool);
-        Quarry::setDefaultPool($poolName);
-        
-        $io->text("<fg=green>✅</> Created pool '{$poolName}'");
+        Quarry::registerConnection($connectionName, $pool);
+        Quarry::setDefaultConnection($connectionName);
+
+        $io->text("<fg=green>✅</> Created connection '{$connectionName}'");
     }
 
-    // ... rest of the methods remain the same
-    private function ensureMigrationsTable(string $connectionPool, SymfonyStyle $io): void
+    private function ensureMigrationsTable(string $connectionName, SymfonyStyle $io): void
     {
-        $pool = Quarry::getPool($connectionPool);
-        $connection = $pool->getConnection();
+        $pool = Quarry::getConnectionPool($connectionName);
+        $scope = new ConnectionScope($pool);
 
         try {
-            $connection->exec('
-                CREATE TABLE IF NOT EXISTS quarry_migrations (
+            $connection = $scope->getConnection();
+            $migrationsTable = $this->getMigrationsTableName($connectionName);
+
+            $connection->exec("
+                CREATE TABLE IF NOT EXISTS {$migrationsTable} (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     migration VARCHAR(255) NOT NULL UNIQUE,
                     batch INTEGER NOT NULL,
                     executed_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
-            ');
-            $io->text('<fg=green>✅</> Migrations table ready');
+            ");
+            $io->text("<fg=green>✅</> Migrations table '{$migrationsTable}' ready");
         } catch (\PDOException $e) {
             throw new RuntimeException('Failed to create migrations table: ' . $e->getMessage());
-        } finally {
-            $pool->releaseConnection($connection);
         }
     }
 
-    private function getPendingMigrations(string $migrationsPath, string $connectionPool, SymfonyStyle $io): array
+    private function getMigrationsTableName(string $connectionName): string
+    {
+        return "quarry_migrations_{$connectionName}";
+    }
+
+    private function getPendingMigrations(string $migrationsPath, string $connectionName, SymfonyStyle $io): array
     {
         if (!is_dir($migrationsPath)) {
             throw new RuntimeException("Migrations directory not found: {$migrationsPath}");
@@ -165,17 +168,20 @@ class MigrateCommand extends Command
             return [];
         }
 
-        $pool = Quarry::getPool($connectionPool);
-        $connection = $pool->getConnection();
-        
+        $pool = Quarry::getConnectionPool($connectionName);
+        $scope = new ConnectionScope($pool);
+
         $executedMigrations = [];
         try {
-            $stmt = $connection->query('SELECT migration FROM quarry_migrations ORDER BY id');
-            $executedMigrations = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            $connection = $scope->getConnection();
+            $migrationsTable = $this->getMigrationsTableName($connectionName);
+
+            $stmt = $connection->query("SELECT migration FROM {$migrationsTable} ORDER BY id");
+            $executedMigrations = $stmt->fetchAll(\PDO::FETCH_COLUMN);
         } catch (\PDOException $e) {
             // Table might not exist yet - that's ok
         } finally {
-            $pool->releaseConnection($connection);
+            $scope->release();
         }
 
         $pending = [];
@@ -189,61 +195,65 @@ class MigrateCommand extends Command
         return $pending;
     }
 
-    private function runMigrations(array $migrations, string $connectionPool, SymfonyStyle $io): array
+    private function runMigrations(array $migrations, string $connectionName, SymfonyStyle $io): array
     {
-        $pool = Quarry::getPool($connectionPool);
+        $pool = Quarry::getConnectionPool($connectionName);
         $results = ['success' => 0, 'failed' => 0];
-        $batch = $this->getNextBatchNumber($connectionPool);
+        $batch = $this->getNextBatchNumber($connectionName);
+        $migrationsTable = $this->getMigrationsTableName($connectionName);
 
         foreach ($migrations as $filename => $filepath) {
-            $io->text("<fg=blue>🚀 Migrating:</> {$filename}");
+            $io->text("<fg=blue>🚀 Migrating:</> {$filename} on connection '{$connectionName}'");
 
+            $scope = new ConnectionScope($pool);
             try {
-                $connection = $pool->getConnection();
+                $connection = $scope->getConnection();
                 $sql = file_get_contents($filepath);
-                
+
                 // Execute migration
                 $connection->exec($sql);
-                
-                // Record migration
-                $stmt = $connection->prepare('
-                    INSERT INTO quarry_migrations (migration, batch) 
+
+                // Record migration in connection-specific table
+                $stmt = $connection->prepare("
+                    INSERT INTO {$migrationsTable} (migration, batch) 
                     VALUES (?, ?)
-                ');
+                ");
                 $stmt->execute([$filename, $batch]);
-                
-                $pool->releaseConnection($connection);
-                
+
                 $results['success']++;
                 $io->text("<fg=green>✅ Success:</> {$filename}");
-
             } catch (\PDOException $e) {
                 $results['failed']++;
                 $io->text("<fg=red>❌ Failed:</> {$filename}");
                 $io->text("    Error: {$e->getMessage()}");
-                
+
                 if (!$io->confirm('Continue with remaining migrations?', false)) {
                     break;
                 }
+            } finally {
+                $scope->release();
             }
         }
 
         return $results;
     }
 
-    private function getNextBatchNumber(string $connectionPool): int
+    private function getNextBatchNumber(string $connectionName): int
     {
-        $pool = Quarry::getPool($connectionPool);
-        $connection = $pool->getConnection();
-        
+        $pool = Quarry::getConnectionPool($connectionName);
+        $scope = new ConnectionScope($pool);
+
         try {
-            $stmt = $connection->query('SELECT MAX(batch) FROM quarry_migrations');
-            $batch = $stmt->fetch(PDO::FETCH_COLUMN);
+            $connection = $scope->getConnection();
+            $migrationsTable = $this->getMigrationsTableName($connectionName);
+
+            $stmt = $connection->query("SELECT MAX(batch) FROM {$migrationsTable}");
+            $batch = $stmt->fetch(\PDO::FETCH_COLUMN);
             return (int) $batch + 1;
         } catch (\PDOException $e) {
             return 1;
         } finally {
-            $pool->releaseConnection($connection);
+            $scope->release();
         }
     }
 }
