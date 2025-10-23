@@ -52,8 +52,12 @@ class Quarry
         return isset(self::$connections[$name]);
     }
 
-    public static function initialize(array $config): void
+    public static function initialize(array|\Quarry\Config\DatabaseConfig $config): void
     {
+        if ($config instanceof \Quarry\Config\DatabaseConfig) {
+            $config = $config->toArray();
+        }
+
         foreach ($config['connections'] as $connectionName => $connectionConfig) {
             $pool = PoolFactory::create($connectionConfig);
             self::registerConnection($connectionName, $pool);

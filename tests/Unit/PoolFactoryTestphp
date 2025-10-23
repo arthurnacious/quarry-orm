@@ -1,0 +1,146 @@
+<?php
+
+namespace Quarry\Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use Quarry\Database\PoolFactory;
+use Quarry\Database\RoadstarPool;
+use Quarry\Database\OpenSwoolePool;
+use Quarry\Database\SwoolePool;
+use RuntimeException;
+
+class PoolFactoryTest extends TestCase
+{
+    protected function tearDown(): void
+    {
+        // Reset any environment variables if needed
+        putenv('QUARRY_TEST_SWOOLE');
+        putenv('QUARRY_TEST_OPENSWOLE');
+    }
+
+    public function test_create_roadstar_pool_by_default(): void
+    {
+        $config = [
+            'max_pool_size' => 5,
+            'connection_config' => ['database_url' => 'sqlite::memory:']
+        ];
+
+        $pool = PoolFactory::create($config);
+        
+        $this->assertInstanceOf(RoadstarPool::class, $pool);
+        $this->assertFalse($pool->isAsync());
+    }
+
+    public function test_create_roadstar_pool_explicitly(): void
+    {
+        $config = [
+            'pool_strategy' => 'roadstar',
+            'max_pool_size' => 5,
+            'connection_config' => ['database_url' => 'sqlite::memory:']
+        ];
+
+        $pool = PoolFactory::create($config);
+        
+        $this->assertInstanceOf(RoadstarPool::class, $pool);
+    }
+
+    public function test_create_openswoole_pool_when_extension_loaded(): void
+    {
+        if (!extension_loaded('openswoole')) {
+            $this->markTestSkipped('OpenSwoole extension not available');
+        }
+
+        $config = [
+            'pool_strategy' => 'openswoole',
+            'max_pool_size' => 5,
+            'connection_config' => ['database_url' => 'sqlite::memory:']
+        ];
+
+        $pool = PoolFactory::create($config);
+        
+        $this->assertInstanceOf(OpenSwoolePool::class, $pool);
+        $this->assertTrue($pool->isAsync());
+    }
+
+    public function test_openswoole_pool_throws_exception_when_extension_missing(): void
+    {
+        if (extension_loaded('openswoole')) {
+            $this->markTestSkipped('OpenSwoole extension is available');
+        }
+
+        $config = [
+            'pool_strategy' => 'openswoole',
+            'max_pool_size' => 5,
+            'connection_config' => ['database_url' => 'sqlite::memory:']
+        ];
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('OpenSwoole extension is required');
+
+        PoolFactory::create($config);
+    }
+
+    public function test_create_swoole_pool_when_extension_loaded(): void
+    {
+        if (!extension_loaded('swoole')) {
+            $this->markTestSkipped('Swoole extension not available');
+        }
+
+        $config = [
+            'pool_strategy' => 'swoole',
+            'max_pool_size' => 5,
+            'connection_config' => ['database_url' => 'sqlite::memory:']
+        ];
+
+        $pool = PoolFactory::create($config);
+        
+        $this->assertInstanceOf(SwoolePool::class, $pool);
+        $this->assertTrue($pool->isAsync());
+    }
+
+    public function test_swoole_pool_throws_exception_when_extension_missing(): void
+    {
+        if (extension_loaded('swoole')) {
+            $this->markTestSkipped('Swoole extension is available');
+        }
+
+        $config = [
+            'pool_strategy' => 'swoole',
+            'max_pool_size' => 5,
+            'connection_config' => ['database_url' => 'sqlite::memory:']
+        ];
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Swoole extension is required');
+
+        PoolFactory::create($config);
+    }
+
+    public function test_throws_exception_for_unknown_strategy(): void
+    {
+        $config = [
+            'pool_strategy' => 'unknown_strategy',
+            'max_pool_size' => 5,
+            'connection_config' => ['database_url' => 'sqlite::memory:']
+        ];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown pool strategy: unknown_strategy');
+
+        PoolFactory::create($config);
+    }
+
+    public function test_pool_configuration_validation(): void
+    {
+        $config = [
+            'pool_strategy' => 'roadstar',
+            'max_pool_size' => 0, // Invalid
+            'connection_config' => ['database_url' => 'sqlite::memory:']
+        ];
+
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('max_pool_size must be at least 1');
+
+        PoolFactory::create($config);
+    }
+}

@@ -3,6 +3,7 @@
 namespace Quarry\Database;
 
 use PDO;
+use OpenSwoole\Coroutine;
 use OpenSwoole\Coroutine\Channel;
 
 class OpenSwoolePool extends AbstractPool
@@ -10,6 +11,7 @@ class OpenSwoolePool extends AbstractPool
     private Channel $pool;
     private int $currentConnections = 0;
     private array $connectionTimestamps = [];
+    private bool $inCoroutine = false;
 
     public function __construct(array $config)
     {
@@ -19,23 +21,36 @@ class OpenSwoolePool extends AbstractPool
 
         parent::__construct($config);
 
+        $this->inCoroutine = Coroutine::getCid() > -1;
         $this->pool = new Channel($this->maxPoolSize);
-        $this->preheatPool();
+
+        if ($this->inCoroutine) {
+            $this->preheatPool();
+        }
     }
 
     private function preheatPool(): void
     {
+        if (!$this->inCoroutine) {
+            return; // Only preheat in coroutine context
+        }
+
         $initialConnections = min(2, $this->maxIdle);
         for ($i = 0; $i < $initialConnections; $i++) {
             $connection = $this->createConnection();
             $this->pool->push($connection);
             $this->connectionTimestamps[spl_object_id($connection)] = microtime(true);
+            $this->currentConnections++;
         }
-        $this->currentConnections = $initialConnections;
     }
 
     public function getConnection(): PDO
     {
+        if (!$this->inCoroutine) {
+            // Fallback to simple array-based pool when not in coroutine
+            return $this->getConnectionSync();
+        }
+
         // Try to get connection from pool with timeout
         $connection = $this->pool->pop(0.5); // 500ms timeout
 
@@ -45,7 +60,7 @@ class OpenSwoolePool extends AbstractPool
                 $connection = $this->createConnection();
                 $this->currentConnections++;
             } else {
-                throw new \RuntimeException('No available connections in pool (timeout)');
+                throw new \RuntimeException('No available connections in OpenSwoole pool (timeout)');
             }
         } else {
             // Validate connection from pool
@@ -60,32 +75,83 @@ class OpenSwoolePool extends AbstractPool
         return $connection;
     }
 
+    /**
+     * Fallback implementation for non-coroutine contexts (like tests)
+     */
+    private function getConnectionSync(): PDO
+    {
+        static $syncPool = [];
+        static $syncConnections = 0;
+
+        if (!empty($syncPool)) {
+            $connection = array_shift($syncPool);
+            if ($this->validateConnection($connection)) {
+                return $connection;
+            }
+            $syncConnections--;
+        }
+
+        if ($syncConnections < $this->maxPoolSize) {
+            $syncConnections++;
+            return $this->createConnection();
+        }
+
+        throw new \RuntimeException('No available connections in OpenSwoole pool (sync mode)');
+    }
+
     public function releaseConnection(PDO $connection): void
     {
         $this->resetConnection($connection);
 
-        if ($this->validateConnection($connection)) {
-            // Clean up old connections before releasing
-            $this->cleanupIdleConnections();
-
-            if ($this->pool->length() < $this->maxIdle) {
-                $this->pool->push($connection);
-                $this->connectionTimestamps[spl_object_id($connection)] = microtime(true);
-            } else {
-                // Pool is full, close the connection
-                $this->currentConnections--;
-                unset($this->connectionTimestamps[spl_object_id($connection)]);
-                unset($connection);
-            }
-        } else {
+        if (!$this->validateConnection($connection)) {
+            unset($connection);
             $this->currentConnections--;
             unset($this->connectionTimestamps[spl_object_id($connection)]);
+            return;
+        }
+
+        if (!$this->inCoroutine) {
+            // Fallback to simple array-based pool when not in coroutine
+            $this->releaseConnectionSync($connection);
+            return;
+        }
+
+        // Clean up old connections before releasing
+        $this->cleanupIdleConnections();
+
+        if ($this->pool->length() < $this->maxIdle) {
+            $this->pool->push($connection);
+            $this->connectionTimestamps[spl_object_id($connection)] = microtime(true);
+        } else {
+            // Pool is full, close the connection
             unset($connection);
+            $this->currentConnections--;
+            unset($this->connectionTimestamps[spl_object_id($connection)]);
+        }
+    }
+
+    /**
+     * Fallback implementation for non-coroutine contexts
+     */
+    private function releaseConnectionSync(PDO $connection): void
+    {
+        static $syncPool = [];
+        static $syncConnections = 0;
+
+        if (count($syncPool) < $this->maxIdle) {
+            $syncPool[] = $connection;
+        } else {
+            unset($connection);
+            $syncConnections--;
         }
     }
 
     private function cleanupIdleConnections(): void
     {
+        if (!$this->inCoroutine) {
+            return;
+        }
+
         $now = microtime(true);
         $length = $this->pool->length();
 
@@ -117,32 +183,36 @@ class OpenSwoolePool extends AbstractPool
 
     public function getStats(): array
     {
-        $this->cleanupIdleConnections();
+        if ($this->inCoroutine) {
+            $this->cleanupIdleConnections();
+        }
 
         return [
             'driver' => 'openswoole',
             'current_connections' => $this->currentConnections,
-            'idle_connections' => $this->pool->length(),
+            'idle_connections' => $this->inCoroutine ? $this->pool->length() : 0,
             'max_pool_size' => $this->maxPoolSize,
             'max_idle' => $this->maxIdle,
             'idle_timeout' => $this->idleTimeout,
             'uptime' => microtime(true) - $this->createdAt,
-            'channel_capacity' => $this->pool->capacity,
-            'channel_length' => $this->pool->length(),
+            'in_coroutine' => $this->inCoroutine,
         ];
     }
 
     public function close(): void
     {
-        while (!$this->pool->isEmpty()) {
-            $connection = $this->pool->pop(0.1);
-            if ($connection !== false) {
-                unset($connection);
+        if ($this->inCoroutine) {
+            while (!$this->pool->isEmpty()) {
+                $connection = $this->pool->pop(0.1);
+                if ($connection !== false) {
+                    unset($connection);
+                }
             }
+            $this->pool->close();
         }
+
         $this->currentConnections = 0;
         $this->connectionTimestamps = [];
-        $this->pool->close();
     }
 
     public function isAsync(): bool

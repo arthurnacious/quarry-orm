@@ -23,6 +23,7 @@ class RoadstarPool extends AbstractPool
         $initialConnections = min(2, $this->maxIdle);
         for ($i = 0; $i < $initialConnections; $i++) {
             $this->pool->push($this->createConnection());
+            $this->currentConnections++;
         }
         $this->currentConnections = $initialConnections;
     }
@@ -38,6 +39,7 @@ class RoadstarPool extends AbstractPool
         }
 
         if ($this->currentConnections < $this->maxPoolSize) {
+            $this->currentConnections++;
             return $this->createConnection();
         }
 
