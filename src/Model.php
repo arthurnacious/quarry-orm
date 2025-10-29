@@ -210,7 +210,16 @@ abstract class Model
 
     public function __get(string $name)
     {
-        return $this->attributes[$name] ?? null;
+        if (array_key_exists($name, $this->attributes)) {
+            return $this->attributes[$name];
+        }
+
+        // Then check for protected properties
+        if (property_exists($this, $name)) {
+            return $this->{$name};
+        }
+
+        return null;
     }
 
     public function __set(string $name, $value): void
@@ -220,7 +229,7 @@ abstract class Model
 
     public function __isset(string $name): bool
     {
-        return isset($this->attributes[$name]);
+        return isset($this->attributes[$name]) || property_exists($this, $name);
     }
 
     protected function fill(array $attributes): void
