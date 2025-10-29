@@ -1,0 +1,46 @@
+<?php
+
+namespace Quarry\Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+use Quarry\Quarry;
+use Quarry\Database\RoadstarPool;
+
+class ModelStateTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        Quarry::registerConnection('test', new RoadstarPool([
+            'connection_config' => ['database_url' => 'sqlite::memory:']
+        ]));
+        
+        $pool = Quarry::getConnectionPool('test');
+        $scope = new \Quarry\Database\ConnectionScope($pool);
+        $connection = $scope->getConnection();
+        $connection->exec('CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR, email VARCHAR)');
+        $scope->release();
+    }
+
+    protected function tearDown(): void
+    {
+        Quarry::closeAll();
+    }
+
+    public function test_model_state_after_save(): void
+    {
+        $modelClass = new class extends \Quarry\Model {
+            protected static ?string $table = 'users';
+            protected static string $connection = 'test';
+        };
+
+        $user = new $modelClass();
+        $user->name = 'Test User';
+        $user->email = 'test@example.com';
+
+        $this->assertFalse($user->exists);
+        $result = $user->save();
+        $this->assertTrue($result);
+        $this->assertTrue($user->exists);
+        $this->assertNotNull($user->id);
+    }
+}
