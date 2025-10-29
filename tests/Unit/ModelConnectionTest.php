@@ -45,9 +45,9 @@ email VARCHAR(255)
         $user = CnnectionTestUser::find(1);
 
         // Debug the exists property access
-        var_dump('exists via __get:', $user->exists);
-        var_dump('exists via property_exists:', property_exists($user, 'exists'));
-        var_dump('exists direct access (should fail):', $user->exists); // This will fail but show the error
+        // var_dump('exists via __get:', $user->exists);
+        // var_dump('exists via property_exists:', property_exists($user, 'exists'));
+        // var_dump('exists direct access (should fail):', $user->exists); // This will fail but show the error
 
         $this->assertNotNull($user);
         $this->assertEquals('John', $user->name);

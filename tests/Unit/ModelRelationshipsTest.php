@@ -42,7 +42,7 @@ class ModelRelationshipsTest extends TestCase
         $stmt = $connection->query("SELECT * FROM users");
         $users = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         echo "Setup - Users after insert: " . count($users) . "\n";
-        var_dump($users);
+        // var_dump($users);
 
         $connection->exec("INSERT INTO posts (title, user_id) VALUES ('First Post', 1)");
         $connection->exec("INSERT INTO posts (title, user_id) VALUES ('Second Post', 1)");
@@ -51,7 +51,7 @@ class ModelRelationshipsTest extends TestCase
         $stmt = $connection->query("SELECT * FROM posts");
         $posts = $stmt->fetchAll(\PDO::FETCH_ASSOC);
         echo "Setup - Posts after insert: " . count($posts) . "\n";
-        var_dump($posts);
+        // var_dump($posts);
 
         $scope->release();
     }
@@ -76,7 +76,7 @@ class ModelRelationshipsTest extends TestCase
         $user = RelationshipTestUser::find(1);
 
         $posts = $user->posts;
-        var_dump('Number of posts found:', count($posts));
+        // var_dump('Number of posts found:', count($posts));
 
         $this->assertIsArray($posts, 'Relationship should return array via __get()');
         $this->assertCount(2, $posts, 'Should load exactly 2 related posts');
@@ -88,8 +88,8 @@ class ModelRelationshipsTest extends TestCase
     {
         // Debug: Check if user is found
         $user = RelationshipTestUser::find(1);
-        var_dump('User from find(1):', $user);
-        var_dump('User is null?', $user === null);
+        // var_dump('User from find(1):', $user);
+        // var_dump('User is null?', $user === null);
 
         if ($user === null) {
             // Debug why find() is failing
@@ -126,14 +126,13 @@ class RelationshipTestUser extends \Quarry\Model
 
     public function posts(): array
     {
-        // Add debug
-        var_dump('posts() called, user_id:', $this->id);
+        // var_dump('posts() called, user_id:', $this->id);
 
         $rows = \Quarry\Database\DB::table('posts', 'test')
             ->where('user_id', $this->id)
             ->get();
 
-        var_dump('Raw posts from DB:', $rows);
+        // var_dump('Raw posts from DB:', $rows);
 
         $posts = [];
         foreach ($rows as $row) {
@@ -144,7 +143,7 @@ class RelationshipTestUser extends \Quarry\Model
             $posts[] = $post;
         }
 
-        var_dump('Converted posts:', $posts);
+        // var_dump('Converted posts:', $posts);
         return $posts;
     }
 }
