@@ -4,6 +4,7 @@ namespace Quarry;
 
 use ReflectionClass;
 use PDO;
+use Quarry\Database\DB;
 
 abstract class Model
 {
@@ -90,6 +91,20 @@ abstract class Model
         return $model;
     }
 
+    public static function where(string $column, string $operator, $value = null): DB
+    {
+        if (func_num_args() === 2) {
+            $value = $operator;
+            $operator = '=';
+        }
+
+        $table = static::getTable();
+        $connectionName = static::getConnectionName();
+
+        return DB::table($table, $connectionName)
+            ->where($column, $operator, $value);
+    }
+
     public static function all(): array
     {
         return static::executeWithConnection(function (PDO $connection) {
@@ -127,6 +142,30 @@ abstract class Model
 
             return null;
         });
+    }
+
+    public static function first(): ?static
+    {
+        $results = static::limit(1)->get();
+        return $results[0] ?? null;
+    }
+
+    public static function limit(int $limit): DB
+    {
+        $table = static::getTable();
+        $connectionName = static::getConnectionName();
+
+        return DB::table($table, $connectionName)
+            ->limit($limit);
+    }
+
+    public static function orderBy(string $column, string $direction = 'ASC'): DB
+    {
+        $table = static::getTable();
+        $connectionName = static::getConnectionName();
+
+        return DB::table($table, $connectionName)
+            ->orderBy($column, $direction);
     }
 
     protected static function executeWithConnection(callable $callback)
@@ -208,8 +247,10 @@ abstract class Model
         });
     }
 
+    // In src/Model.php - Update __get() method
     public function __get(string $name)
     {
+        // First check for regular attributes
         if (array_key_exists($name, $this->attributes)) {
             return $this->attributes[$name];
         }
@@ -217,6 +258,16 @@ abstract class Model
         // Then check for protected properties
         if (property_exists($this, $name)) {
             return $this->{$name};
+        }
+
+        // Then check for relationship methods
+        if (method_exists($this, $name)) {
+            // Call the relationship method and cache the result
+            $relationshipKey = '_relationship_' . $name;
+            if (!array_key_exists($relationshipKey, $this->attributes)) {
+                $this->attributes[$relationshipKey] = $this->{$name}();
+            }
+            return $this->attributes[$relationshipKey];
         }
 
         return null;
