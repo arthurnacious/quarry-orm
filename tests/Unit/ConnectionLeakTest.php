@@ -49,7 +49,7 @@ class ConnectionLeakTest extends TestCase
 
     public function test_manual_release_works(): void
     {
-        $pool = Quarry::getConnectionPool('leak_test'); // FIXED: getConnectionPool
+        $pool = Quarry::getConnectionPool('leak_test');
         $initialIdle = $pool->getStats()['idle_connections'];
 
         $scope = new ConnectionScope($pool);

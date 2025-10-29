@@ -3,63 +3,39 @@
 namespace Quarry\Database;
 
 use PDO;
-use SplQueue;
 
-class RoadstarPool extends AbstractPool
+class RoadstarPool implements PoolInterface
 {
-    private SplQueue $pool;
-    private int $currentConnections = 0;
+    private array $config;
+    private ?PDO $connection = null;
+    private bool $inTransaction = false;
 
     public function __construct(array $config)
     {
-        parent::__construct($config);
-
-        $this->pool = new SplQueue();
-        $this->preheatPool();
-    }
-
-    private function preheatPool(): void
-    {
-        $initialConnections = min(2, $this->maxIdle);
-        for ($i = 0; $i < $initialConnections; $i++) {
-            $this->pool->push($this->createConnection());
-            $this->currentConnections++;
-        }
-        $this->currentConnections = $initialConnections;
+        $this->config = $config;
     }
 
     public function getConnection(): PDO
     {
-        if (!$this->pool->isEmpty()) {
-            $connection = $this->pool->shift();
-            if ($this->validateConnection($connection)) {
-                return $connection;
-            }
-            $this->currentConnections--;
+        if ($this->connection && ConnectionFactory::validateConnection($this->connection)) {
+            return $this->connection;
         }
 
-        if ($this->currentConnections < $this->maxPoolSize) {
-            $this->currentConnections++;
-            return $this->createConnection();
-        }
-
-        throw new \RuntimeException('No available connections in pool');
+        $this->connection = ConnectionFactory::create($this->config['connection_config']);
+        return $this->connection;
     }
 
     public function releaseConnection(PDO $connection): void
     {
-        $this->resetConnection($connection);
+        // For Roadstar, we keep the connection open
+        // Only reset if it's a different connection (shouldn't happen)
+        if ($connection !== $this->connection) {
+            $connection = null;
+        }
 
-        if ($this->validateConnection($connection)) {
-            if ($this->pool->count() < $this->maxIdle) {
-                $this->pool->push($connection);
-            } else {
-                unset($connection);
-                $this->currentConnections--;
-            }
-        } else {
-            unset($connection);
-            $this->currentConnections--;
+        // Reset connection state if not in transaction
+        if (!$this->inTransaction) {
+            ConnectionFactory::resetConnection($connection);
         }
     }
 
@@ -67,22 +43,18 @@ class RoadstarPool extends AbstractPool
     {
         return [
             'driver' => 'roadstar',
-            'current_connections' => $this->currentConnections,
-            'idle_connections' => $this->pool->count(),
-            'max_pool_size' => $this->maxPoolSize,
-            'max_idle' => $this->maxIdle,
-            'idle_timeout' => $this->idleTimeout,
-            'uptime' => microtime(true) - $this->createdAt,
+            'strategy' => 'single-connection',
+            'has_connection' => $this->connection !== null,
+            'in_transaction' => $this->inTransaction,
+            'is_async' => false
         ];
     }
 
     public function close(): void
     {
-        while (!$this->pool->isEmpty()) {
-            $connection = $this->pool->shift();
-            unset($connection);
+        if ($this->connection) {
+            $this->connection = null;
         }
-        $this->currentConnections = 0;
     }
 
     public function isAsync(): bool

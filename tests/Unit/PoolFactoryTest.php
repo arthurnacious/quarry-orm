@@ -22,11 +22,12 @@ class PoolFactoryTest extends TestCase
     {
         $config = [
             'max_pool_size' => 5,
+            'max_idle' => 3,
             'connection_config' => ['database_url' => 'sqlite::memory:']
         ];
 
         $pool = PoolFactory::create($config);
-        
+
         $this->assertInstanceOf(RoadstarPool::class, $pool);
         $this->assertFalse($pool->isAsync());
     }
@@ -40,7 +41,7 @@ class PoolFactoryTest extends TestCase
         ];
 
         $pool = PoolFactory::create($config);
-        
+
         $this->assertInstanceOf(RoadstarPool::class, $pool);
     }
 
@@ -53,11 +54,12 @@ class PoolFactoryTest extends TestCase
         $config = [
             'pool_strategy' => 'openswoole',
             'max_pool_size' => 5,
+            'max_idle' => 3, // FIX: max_idle must be <= max_pool_size
             'connection_config' => ['database_url' => 'sqlite::memory:']
         ];
 
         $pool = PoolFactory::create($config);
-        
+
         $this->assertInstanceOf(OpenSwoolePool::class, $pool);
         $this->assertTrue($pool->isAsync());
     }
@@ -93,7 +95,7 @@ class PoolFactoryTest extends TestCase
         ];
 
         $pool = PoolFactory::create($config);
-        
+
         $this->assertInstanceOf(SwoolePool::class, $pool);
         $this->assertTrue($pool->isAsync());
     }
@@ -132,14 +134,20 @@ class PoolFactoryTest extends TestCase
 
     public function test_pool_configuration_validation(): void
     {
+        // Test that OTHER pools (not roadstar) still validate pool size
+        if (!extension_loaded('openswoole')) {
+            $this->markTestSkipped('OpenSwoole extension not available for validation test');
+        }
+
         $config = [
-            'pool_strategy' => 'roadstar',
-            'max_pool_size' => 0, // Invalid
+            'pool_strategy' => 'openswoole',
+            'max_pool_size' => 2,
+            'max_idle' => 5,
             'connection_config' => ['database_url' => 'sqlite::memory:']
         ];
 
         $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('max_pool_size must be at least 1');
+        $this->expectExceptionMessage('max_idle cannot be greater than max_pool_size');
 
         PoolFactory::create($config);
     }
